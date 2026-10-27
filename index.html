@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת מעקב משלוחים ותדלוקים</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Heebo', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Heebo', sans-serif;
+            background-color: #f8fafc;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="text-slate-800 min-h-screen pb-12 transition-colors duration-200">
+
+    <!-- Header Navigation -->
+    <header class="bg-slate-900 text-white sticky top-0 z-30 shadow-md">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <div class="p-2 bg-blue-600 rounded-xl">
+                    <i data-lucide="truck" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">מעקב משלוחים</h1>
+                    <p class="text-xs text-slate-400">ניהול עבודה, הכנסות ודלק</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2 space-x-reverse">
+                <button onclick="exportData()" class="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition" title="ייצוא גיבוי">
+                    <i data-lucide="download" class="w-5 h-5"></i>
+                </button>
+                <label class="p-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer" title="ייבוא גיבוי">
+                    <i data-lucide="upload" class="w-5 h-5"></i>
+                    <input type="file" id="importFile" onchange="importData(event)" class="hidden" accept=".json">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+        <!-- Month Selector & Global Actions -->
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+            <div class="flex items-center space-x-3 space-x-reverse w-full sm:w-auto justify-between sm:justify-start">
+                <button onclick="changeMonth(-1)" class="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600">
+                    <i data-lucide="chevron-right" class="w-6 h-6"></i>
+                </button>
+                <h2 id="currentMonthYear" class="text-xl font-bold text-slate-900 text-center min-w-[140px]">---</h2>
+                <button onclick="changeMonth(1)" class="p-2 hover:bg-slate-100 rounded-xl transition text-slate-600">
+                    <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                </button>
+            </div>
+
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <button onclick="openFuelModal()" class="flex-1 sm:flex-none px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition shadow-sm">
+                    <i data-lucide="fuel" class="w-4 h-4"></i>
+                    <span>הוסף תדלוק</span>
+                </button>
+                <button onclick="resetMonthData()" class="px-3 py-2.5 text-rose-600 hover:bg-rose-50 rounded-xl transition font-medium text-sm flex items-center gap-1" title="איפוס חודש נוכחי">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">איפוס חודש</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Monthly Summary Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            <!-- Gross Income -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div class="flex items-center justify-between text-slate-500 mb-1">
+                    <span class="text-xs sm:text-sm font-medium">הכנסה ברוטו</span>
+                    <i data-lucide="coins" class="w-4 h-4 text-emerald-500"></i>
+                </div>
+                <div id="summaryGross" class="text-xl sm:text-2xl font-bold text-slate-900">₪0</div>
+                <div class="text-xs text-slate-400 mt-1">מכל המשלוחים</div>
+            </div>
+
+            <!-- Fuel Expenses -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div class="flex items-center justify-between text-slate-500 mb-1">
+                    <span class="text-xs sm:text-sm font-medium">הוצאות דלק</span>
+                    <i data-lucide="fuel" class="w-4 h-4 text-amber-500"></i>
+                </div>
+                <div id="summaryFuel" class="text-xl sm:text-2xl font-bold text-slate-900">₪0</div>
+                <div id="summaryFuelLiters" class="text-xs text-slate-400 mt-1">0 ליטר תודלקו</div>
+            </div>
+
+            <!-- Net Earnings -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div class="flex items-center justify-between text-slate-500 mb-1">
+                    <span class="text-xs sm:text-sm font-medium">רווח נקי</span>
+                    <i data-lucide="wallet" class="w-4 h-4 text-blue-500"></i>
+                </div>
+                <div id="summaryNet" class="text-xl sm:text-2xl font-bold text-blue-600">₪0</div>
+                <div class="text-xs text-slate-400 mt-1">הכנסה בניכוי דלק</div>
+            </div>
+
+            <!-- Total Deliveries Count -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                <div class="flex items-center justify-between text-slate-500 mb-1">
+                    <span class="text-xs sm:text-sm font-medium">סה"כ משלוחים</span>
+                    <i data-lucide="package" class="w-4 h-4 text-indigo-500"></i>
+                </div>
+                <div id="summaryDeliveriesCount" class="text-xl sm:text-2xl font-bold text-slate-900">0</div>
+                <div id="summaryDeliveriesBreakdown" class="text-xs text-slate-400 mt-1">0 קטן | 0 גדול</div>
+            </div>
+        </div>
+
+        <!-- Main Calendar & Side Panel Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Calendar Card -->
+            <div class="lg:col-span-2 bg-white rounded-2xl p-4 sm:p-5 border border-slate-100 shadow-sm">
+                <!-- Days Header -->
+                <div class="calendar-grid text-center font-bold text-slate-400 text-xs sm:text-sm pb-3 border-b border-slate-100 mb-2">
+                    <div>א'</div>
+                    <div>ב'</div>
+                    <div>ג'</div>
+                    <div>ד'</div>
+                    <div>ה'</div>
+                    <div>ו'</div>
+                    <div>ש'</div>
+                </div>
+                <!-- Calendar Days Grid -->
+                <div id="calendarGrid" class="calendar-grid gap-1 sm:gap-2">
+                    <!-- JavaScript injected days -->
+                </div>
+            </div>
+
+            <!-- Fuel Logs & Quick Stats Panel -->
+            <div class="space-y-6">
+                <!-- Fuel Logs List -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-slate-900 flex items-center gap-2">
+                            <i data-lucide="fuel" class="w-5 h-5 text-amber-500"></i>
+                            פירוט תדלוקים החודש
+                        </h3>
+                        <span id="fuelLogCount" class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full font-medium">0 תדלוקים</span>
+                    </div>
+
+                    <div id="fuelLogsList" class="space-y-2 flex-1 overflow-y-auto max-h-[350px] pr-1">
+                        <!-- Fuel logs dynamically populated -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Daily Log Modal -->
+    <div id="dayModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl transition-all scale-95 opacity-0 transform" id="dayModalCard">
+            <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                <div>
+                    <h3 id="modalDateTitle" class="text-xl font-bold text-slate-900">עדכון יום</h3>
+                    <p id="modalSubTitle" class="text-xs text-slate-500"></p>
+                </div>
+                <button onclick="closeDayModal()" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="dayForm" onsubmit="saveDayData(event)" class="space-y-5 mt-4">
+                <input type="hidden" id="selectedDateKey">
+
+                <!-- City Input -->
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1.5">
+                        <i data-lucide="map-pin" class="w-4 h-4 text-blue-500"></i>
+                        עיר / אזור חלוקה
+                    </label>
+                    <input type="text" id="inputCity" placeholder="לדוגמה: תל אביב, מרכז..." 
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+
+                <!-- Small Deliveries (12 NIS) -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div class="flex justify-between items-center mb-2">
+                        <div>
+                            <span class="font-bold text-slate-800 block text-sm">משלוח קטן</span>
+                            <span class="text-xs text-slate-500">12 ₪ ליחידה</span>
+                        </div>
+                        <span id="smallTotalCalc" class="text-sm font-bold text-blue-600">₪0</span>
+                    </div>
+                    <div class="flex items-center space-x-3 space-x-reverse">
+                        <button type="button" onclick="adjustCount('inputSmall', -1)" class="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-lg font-bold text-slate-700 active:scale-95 transition shadow-sm">-</button>
+                        <input type="number" id="inputSmall" value="0" min="0" oninput="updateModalCalcs()" 
+                            class="w-full text-center font-bold text-lg border-0 bg-transparent focus:outline-none">
+                        <button type="button" onclick="adjustCount('inputSmall', 1)" class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center text-lg font-bold active:scale-95 transition shadow-sm">+</button>
+                    </div>
+                </div>
+
+                <!-- Large Deliveries (25 NIS) -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div class="flex justify-between items-center mb-2">
+                        <div>
+                            <span class="font-bold text-slate-800 block text-sm">משלוח גדול</span>
+                            <span class="text-xs text-slate-500">25 ₪ ליחידה</span>
+                        </div>
+                        <span id="largeTotalCalc" class="text-sm font-bold text-blue-600">₪0</span>
+                    </div>
+                    <div class="flex items-center space-x-3 space-x-reverse">
+                        <button type="button" onclick="adjustCount('inputLarge', -1)" class="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-lg font-bold text-slate-700 active:scale-95 transition shadow-sm">-</button>
+                        <input type="number" id="inputLarge" value="0" min="0" oninput="updateModalCalcs()" 
+                            class="w-full text-center font-bold text-lg border-0 bg-transparent focus:outline-none">
+                        <button type="button" onclick="adjustCount('inputLarge', 1)" class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center text-lg font-bold active:scale-95 transition shadow-sm">+</button>
+                    </div>
+                </div>
+
+                <!-- Total Daily Calculation Banner -->
+                <div class="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex justify-between items-center">
+                    <span class="text-sm font-medium text-blue-900">סה"כ יומית מחושבת:</span>
+                    <span id="dailyTotalCalc" class="text-xl font-extrabold text-blue-700">₪0</span>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex gap-3 pt-2">
+                    <button type="submit" class="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition shadow-md">
+                        שמור נתונים
+                    </button>
+                    <button type="button" onclick="clearDayData()" class="px-4 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-medium transition" title="נקה יום זה">
+                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Fuel Expense Modal -->
+    <div id="fuelModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl transition-all scale-95 opacity-0 transform" id="fuelModalCard">
+            <div class="flex justify-between items-center pb-4 border-b border-slate-100">
+                <h3 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="fuel" class="w-5 h-5 text-amber-500"></i>
+                    תיעוד תדלוק חדש
+                </h3>
+                <button onclick="closeFuelModal()" class="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="fuelForm" onsubmit="saveFuelData(event)" class="space-y-4 mt-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">תאריך תדלוק</label>
+                    <input type="date" id="fuelDate" required 
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">סכום לתשלום (₪)</label>
+                    <input type="number" id="fuelAmount" required step="0.1" min="1" placeholder="לדוגמה: 250" 
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm font-bold">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">כמות בליטרים (רשות)</label>
+                    <input type="number" id="fuelLiters" step="0.01" min="0" placeholder="לדוגמה: 35.5" 
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">הערות (רשות)</label>
+                    <input type="text" id="fuelNotes" placeholder="לדוגמה: תחנת דלק פז..." 
+                        class="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm">
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold transition shadow-md">
+                        שמור תדלוק
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 transition-all duration-300 translate-y-20 opacity-0 z-50">
+        <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400" id="toastIcon"></i>
+        <span id="toastMsg" class="text-sm font-medium">הפעולה בוצעה בהצלחה</span>
+    </div>
+
+    <script>
+        // Constants & Rates
+        const RATE_SMALL = 12;
+        const RATE_LARGE = 25;
+        const STORAGE_KEY = 'delivery_app_data_v1';
+
+        // App State
+        let currentDate = new Date();
+        let appData = {
+            days: {},  // Key format: 'YYYY-MM-DD'
+            fuel: []   // Array of fuel objects { id, date, amount, liters, notes }
+        };
+
+        // Initialize App
+        window.onload = function() {
+            loadLocalStorage();
+            renderApp();
+        };
+
+        // Save & Load LocalStorage
+        function saveLocalStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+        }
+
+        function loadLocalStorage() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    appData = JSON.parse(saved);
+                    if (!appData.days) appData.days = {};
+                    if (!appData.fuel) appData.fuel = [];
+                } catch(e) {
+                    console.error("Failed to parse storage data", e);
+                }
+            }
+        }
+
+        // Render Everything for Current Month
+        function renderApp() {
+            renderHeaderDate();
+            renderCalendar();
+            renderSummary();
+            renderFuelLogs();
+            lucide.createIcons();
+        }
+
+        function renderHeaderDate() {
+            const monthNames = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+            const year = currentDate.getFullYear();
+            const month = monthNames[currentDate.getMonth()];
+            document.getElementById('currentMonthYear').textContent = `${month} ${year}`;
+        }
+
+        function changeMonth(delta) {
+            currentDate.setMonth(currentDate.getMonth() + delta);
+            renderApp();
+        }
+
+        // Calendar Rendering Logic
+        function renderCalendar() {
+            const calendarGrid = document.getElementById('calendarGrid');
+            calendarGrid.innerHTML = '';
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            // First day of month & Total days
+            const firstDayIndex = new Date(year, month, 1).getDay();
+            const totalDays = new Date(year, month + 1, 0).getDate();
+
+            // Padding days from previous month
+            for (let i = 0; i < firstDayIndex; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = "h-20 sm:h-24 bg-slate-50/50 rounded-xl border border-dashed border-slate-100";
+                calendarGrid.appendChild(emptyCell);
+            }
+
+            const todayStr = formatDateKey(new Date());
+
+            // Render current month days
+            for (let day = 1; day <= totalDays; day++) {
+                const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayData = appData.days[dateKey] || { small: 0, large: 0, city: '' };
+                const dailyTotal = (dayData.small * RATE_SMALL) + (dayData.large * RATE_LARGE);
+                const hasData = dayData.small > 0 || dayData.large > 0 || dayData.city;
+                const isToday = dateKey === todayStr;
+
+                const dayCard = document.createElement('div');
+                dayCard.onclick = () => openDayModal(dateKey, day);
+                dayCard.className = `h-20 sm:h-24 p-1.5 sm:p-2 rounded-2xl border transition cursor-pointer flex flex-col justify-between relative group ${
+                    isToday ? 'border-blue-500 bg-blue-50/30' : 'border-slate-100 bg-white hover:border-blue-300 hover:shadow-sm'
+                }`;
+
+                let badgeHTML = '';
+                if (hasData) {
+                    badgeHTML = `
+                        <div class="mt-auto space-y-0.5">
+                            ${dayData.city ? `<div class="text-[10px] text-slate-500 font-medium truncate">${dayData.city}</div>` : ''}
+                            <div class="text-xs sm:text-sm font-bold text-emerald-600">₪${dailyTotal}</div>
+                            <div class="text-[10px] text-slate-400 flex justify-between">
+                                <span>${dayData.small > 0 ? dayData.small + ' ק' : ''}</span>
+                                <span>${dayData.large > 0 ? dayData.large + ' ג' : ''}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                dayCard.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs sm:text-sm font-bold ${isToday ? 'w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center' : 'text-slate-700'}">${day}</span>
+                        ${hasData ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>' : ''}
+                    </div>
+                    ${badgeHTML}
+                `;
+
+                calendarGrid.appendChild(dayCard);
+            }
+        }
+
+        // Summary Analytics Logic
+        function renderSummary() {
+            const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            
+            let totalGross = 0;
+            let totalSmall = 0;
+            let totalLarge = 0;
+
+            // Calculate deliveries for current month
+            Object.keys(appData.days).forEach(dateKey => {
+                if (dateKey.startsWith(currentYearMonth)) {
+                    const day = appData.days[dateKey];
+                    const small = Number(day.small) || 0;
+                    const large = Number(day.large) || 0;
+
+                    totalSmall += small;
+                    totalLarge += large;
+                    totalGross += (small * RATE_SMALL) + (large * RATE_LARGE);
+                }
+            });
+
+            // Calculate fuel for current month
+            let totalFuel = 0;
+            let totalLiters = 0;
+            appData.fuel.forEach(item => {
+                if (item.date && item.date.startsWith(currentYearMonth)) {
+                    totalFuel += Number(item.amount) || 0;
+                    totalLiters += Number(item.liters) || 0;
+                }
+            });
+
+            const netEarnings = totalGross - totalFuel;
+
+            // Update DOM
+            document.getElementById('summaryGross').textContent = `₪${totalGross.toLocaleString()}`;
+            document.getElementById('summaryFuel').textContent = `₪${totalFuel.toLocaleString()}`;
+            document.getElementById('summaryFuelLiters').textContent = `${totalLiters.toFixed(1)} ליטר תודלקו`;
+            
+            const netElem = document.getElementById('summaryNet');
+            netElem.textContent = `₪${netEarnings.toLocaleString()}`;
+            netElem.className = `text-xl sm:text-2xl font-bold ${netEarnings >= 0 ? 'text-blue-600' : 'text-rose-600'}`;
+
+            document.getElementById('summaryDeliveriesCount').textContent = totalSmall + totalLarge;
+            document.getElementById('summaryDeliveriesBreakdown').textContent = `${totalSmall} קטן | ${totalLarge} גדול`;
+        }
+
+        // Daily Modal Handling
+        function openDayModal(dateKey, dayNumber) {
+            const dayData = appData.days[dateKey] || { small: 0, large: 0, city: '' };
+            
+            document.getElementById('selectedDateKey').value = dateKey;
+            document.getElementById('modalDateTitle').textContent = `עבודה ביום ${dayNumber}`;
+            
+            const [y, m, d] = dateKey.split('-');
+            document.getElementById('modalSubTitle').textContent = `${d}/${m}/${y}`;
+            
+            document.getElementById('inputCity').value = dayData.city || '';
+            document.getElementById('inputSmall').value = dayData.small || 0;
+            document.getElementById('inputLarge').value = dayData.large || 0;
+
+            updateModalCalcs();
+
+            const modal = document.getElementById('dayModal');
+            const card = document.getElementById('dayModalCard');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                card.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+
+        function closeDayModal() {
+            const modal = document.getElementById('dayModal');
+            const card = document.getElementById('dayModalCard');
+            card.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        function adjustCount(inputId, delta) {
+            const input = document.getElementById(inputId);
+            let val = parseInt(input.value) || 0;
+            val = Math.max(0, val + delta);
+            input.value = val;
+            updateModalCalcs();
+        }
+
+        function updateModalCalcs() {
+            const small = parseInt(document.getElementById('inputSmall').value) || 0;
+            const large = parseInt(document.getElementById('inputLarge').value) || 0;
+
+            const smallTotal = small * RATE_SMALL;
+            const largeTotal = large * RATE_LARGE;
+            const grandTotal = smallTotal + largeTotal;
+
+            document.getElementById('smallTotalCalc').textContent = `₪${smallTotal}`;
+            document.getElementById('largeTotalCalc').textContent = `₪${largeTotal}`;
+            document.getElementById('dailyTotalCalc').textContent = `₪${grandTotal}`;
+        }
+
+        function saveDayData(e) {
+            e.preventDefault();
+            const dateKey = document.getElementById('selectedDateKey').value;
+            const small = parseInt(document.getElementById('inputSmall').value) || 0;
+            const large = parseInt(document.getElementById('inputLarge').value) || 0;
+            const city = document.getElementById('inputCity').value.trim();
+
+            if (small === 0 && large === 0 && !city) {
+                delete appData.days[dateKey];
+            } else {
+                appData.days[dateKey] = { small, large, city };
+            }
+
+            saveLocalStorage();
+            renderApp();
+            closeDayModal();
+            showToast("נתוני היום עודכנו בהצלחה");
+        }
+
+        function clearDayData() {
+            const dateKey = document.getElementById('selectedDateKey').value;
+            if (appData.days[dateKey]) {
+                delete appData.days[dateKey];
+                saveLocalStorage();
+                renderApp();
+                showToast("הנתונים ליום זה נמחקו");
+            }
+            closeDayModal();
+        }
+
+        // Fuel Expenses Logic
+        function openFuelModal() {
+            document.getElementById('fuelDate').value = formatDateKey(new Date());
+            document.getElementById('fuelAmount').value = '';
+            document.getElementById('fuelLiters').value = '';
+            document.getElementById('fuelNotes').value = '';
+
+            const modal = document.getElementById('fuelModal');
+            const card = document.getElementById('fuelModalCard');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                card.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+
+        function closeFuelModal() {
+            const modal = document.getElementById('fuelModal');
+            const card = document.getElementById('fuelModalCard');
+            card.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        function saveFuelData(e) {
+            e.preventDefault();
+            const date = document.getElementById('fuelDate').value;
+            const amount = parseFloat(document.getElementById('fuelAmount').value) || 0;
+            const liters = parseFloat(document.getElementById('fuelLiters').value) || 0;
+            const notes = document.getElementById('fuelNotes').value.trim();
+
+            appData.fuel.push({
+                id: Date.now(),
+                date,
+                amount,
+                liters,
+                notes
+            });
+
+            saveLocalStorage();
+            renderApp();
+            closeFuelModal();
+            showToast("תדלוק חדש נשמר בהצלחה");
+        }
+
+        function deleteFuelLog(id) {
+            appData.fuel = appData.fuel.filter(item => item.id !== id);
+            saveLocalStorage();
+            renderApp();
+            showToast("התדלוק נמחק");
+        }
+
+        function renderFuelLogs() {
+            const listContainer = document.getElementById('fuelLogsList');
+            const countContainer = document.getElementById('fuelLogCount');
+            const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+
+            const monthlyFuel = appData.fuel
+                .filter(item => item.date && item.date.startsWith(currentYearMonth))
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            countContainer.textContent = `${monthlyFuel.length} תדלוקים`;
+            listContainer.innerHTML = '';
+
+            if (monthlyFuel.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center py-8 text-slate-400">
+                        <i data-lucide="fuel" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+                        <p class="text-xs">אין תדלוקים רשומים החודש</p>
+                    </div>
+                `;
+                return;
+            }
+
+            monthlyFuel.forEach(item => {
+                const [y, m, d] = item.date.split('-');
+                const formattedDate = `${d}/${m}`;
+
+                const card = document.createElement('div');
+                card.className = "flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl transition border border-slate-100 text-sm";
+                card.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center font-bold text-xs">
+                            ${formattedDate}
+                        </div>
+                        <div>
+                            <div class="font-bold text-slate-800">₪${item.amount}</div>
+                            <div class="text-[11px] text-slate-400">${item.liters ? item.liters + ' ליטר' : ''} ${item.notes ? '• ' + item.notes : ''}</div>
+                        </div>
+                    </div>
+                    <button onclick="deleteFuelLog(${item.id})" class="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg transition" title="מחק תדלוק">
+                        <i data-lucide="trash" class="w-4 h-4"></i>
+                    </button>
+                `;
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Export & Import Backup JSON
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", `delivery_backup_${formatDateKey(new Date())}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast("קובץ הגיבוי הורד בהצלחה");
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (imported && (imported.days || imported.fuel)) {
+                        appData = imported;
+                        if (!appData.days) appData.days = {};
+                        if (!appData.fuel) appData.fuel = [];
+                        saveLocalStorage();
+                        renderApp();
+                        showToast("הנתונים שוחזרו בהצלחה!");
+                    } else {
+                        showToast("קובץ לא תקין", true);
+                    }
+                } catch(err) {
+                    showToast("שגיאה בקריאת הקובץ", true);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function resetMonthData() {
+            const monthNames = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+            const monthName = monthNames[currentDate.getMonth()];
+            
+            if (confirm(`האם אתה בטוח שברצונך למחוק את כל הנתונים של חודש ${monthName}?`)) {
+                const currentYearMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                // Remove month days
+                Object.keys(appData.days).forEach(key => {
+                    if (key.startsWith(currentYearMonth)) {
+                        delete appData.days[key];
+                    }
+                });
+
+                // Remove month fuel
+                appData.fuel = appData.fuel.filter(item => !(item.date && item.date.startsWith(currentYearMonth)));
+
+                saveLocalStorage();
+                renderApp();
+                showToast(`נתוני חודש ${monthName} אופסו`);
+            }
+        }
+
+        // Helpers
+        function formatDateKey(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toastMsg');
+            const icon = document.getElementById('toastIcon');
+
+            msg.textContent = message;
+            if (isError) {
+                icon.className = "w-5 h-5 text-rose-400";
+            } else {
+                icon.className = "w-5 h-5 text-emerald-400";
+            }
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 2500);
+        }
+    </script>
+</body>
+</html>
